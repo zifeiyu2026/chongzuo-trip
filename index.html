@@ -175,6 +175,7 @@
   .ledger-row{display:flex;align-items:center;gap:8px;padding:8px 10px;border:1px solid var(--line);border-radius:10px;margin:6px 0;background:#f5fafd;font-size:14px;}
   .ledger-row .lg-cat{font-size:11px;background:var(--teal-soft);color:var(--teal);border-radius:6px;padding:2px 8px;flex:none;}
   .ledger-row .lg-note{color:var(--muted);font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .ledger-row .lg-date{font-size:11px;color:var(--muted);background:#eef4f8;border-radius:6px;padding:2px 7px;flex:none;}
   .ledger-row .lg-amt{font-weight:700;margin-left:auto;flex:none;}
   .ledger-row .lg-del{margin-left:4px;border:none;background:none;color:var(--muted);cursor:pointer;font-size:16px;flex:none;}
   .ledger-row .lg-del:hover{color:var(--red);}
@@ -193,6 +194,12 @@
   .drawer-mask{position:fixed;inset:0;background:rgba(40,40,40,.32);z-index:55;opacity:0;visibility:hidden;transition:opacity .2s;}
   .drawer-mask.open{opacity:1;visibility:visible;}
 
+  /* 底部手机导航 */
+  .bottom-nav{position:fixed;left:0;right:0;bottom:0;height:58px;background:#fff;border-top:1px solid var(--line);display:none;align-items:center;justify-content:space-around;z-index:50;padding-bottom:env(safe-area-inset-bottom,0);box-shadow:0 -2px 12px rgba(46,155,224,.08);}
+  .bottom-nav .bn-tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;height:100%;font-size:11px;color:var(--muted);text-decoration:none;background:none;border:none;cursor:pointer;padding:0;transition:.15s;}
+  .bottom-nav .bn-tab .bn-ic{font-size:20px;line-height:1;}
+  .bottom-nav .bn-tab.active{color:var(--teal);background:var(--teal-soft);}
+
   /* 响应式 */
   @media (max-width:640px){
     .toolbar .inner .btn{display:none;}
@@ -201,10 +208,12 @@
     .wrap nav.toc{display:none;}
     .items{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));}
     .photo-grid,.clothes-grid{grid-template-columns:1fr;}
+    .bottom-nav{display:flex;}
+    .wrap{padding-bottom:72px;}
   }
   @media (max-width:480px){
     body{font-size:15px;}
-    .wrap{padding:0 12px 60px;}
+    .wrap{padding:0 12px 72px;}
     section{padding:14px 14px 8px;margin:12px 0;}
     .hero-avatar{width:52px;height:70px;}
     .hero-deco{width:88px;height:112px;}
@@ -795,6 +804,7 @@
       <option>交通</option><option>住宿</option><option>餐饮</option><option>门票</option><option>购物</option><option>其他</option>
     </select>
     <input id="lg-amount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="金额 ¥">
+    <input id="lg-date" type="date">
     <input id="lg-note" placeholder="备注（可选）">
     <button class="btn primary" id="lg-add">＋ 记一笔</button>
   </div>
@@ -944,6 +954,7 @@ const OWNER_SEQ=['all','dad','mom','kid'];
 let ownerMap={};
 let ledgerData=[];
 let curFilter='all';
+function todayStr(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function addOwnerBadge(item){
   let owner=item.dataset.owner||(item.querySelector('input')&&item.querySelector('input').id&&ownerMap[item.querySelector('input').id])||'all';
   item.dataset.owner=owner;
@@ -978,10 +989,12 @@ function applyFilter(){
 function renderLedger(){
   const list=document.getElementById('ledgerList');if(!list)return;
   list.innerHTML='';let total=0;const bycat={};
-  ledgerData.forEach(r=>{total+=r.amount;bycat[r.cat]=(bycat[r.cat]||0)+r.amount;
+  const rows=[...ledgerData].sort((a,b)=>(b.date||'').localeCompare(a.date||''));
+  rows.forEach(r=>{total+=r.amount;bycat[r.cat]=(bycat[r.cat]||0)+r.amount;
     const row=document.createElement('div');row.className='ledger-row';
-    row.innerHTML='<span class="lg-cat"></span><span class="lg-note"></span><span class="lg-amt"></span><button class="lg-del" title="删除">×</button>';
+    row.innerHTML='<span class="lg-cat"></span><span class="lg-date"></span><span class="lg-note"></span><span class="lg-amt"></span><button class="lg-del" title="删除">×</button>';
     row.querySelector('.lg-cat').textContent=r.cat;
+    row.querySelector('.lg-date').textContent=r.date||'';
     row.querySelector('.lg-note').textContent=r.note||'';
     row.querySelector('.lg-amt').textContent='¥'+(+r.amount).toFixed(2).replace(/\.00$/,'');
     row.querySelector('.lg-del').addEventListener('click',()=>{ledgerData=ledgerData.filter(x=>x.id!==r.id);saveAll();renderLedger();});
@@ -994,8 +1007,9 @@ function addLedger(){
   const cat=document.getElementById('lg-cat').value;
   const amt=parseFloat(document.getElementById('lg-amount').value);
   const note=document.getElementById('lg-note').value.trim();
+  const date=document.getElementById('lg-date').value||todayStr();
   if(!amt||amt<=0){alert('请输入有效金额');return;}
-  ledgerData.push({id:'l_'+Date.now(),cat,amount:amt,note});
+  ledgerData.push({id:'l_'+Date.now(),cat,amount:amt,note,date});
   document.getElementById('lg-amount').value='';document.getElementById('lg-note').value='';
   saveAll();renderLedger();setStatus('已记账');
 }
@@ -1018,6 +1032,29 @@ function bindFilterDrawer(){
       if(a.closest('.drawer'))close();
     });
   });
+  const bottomNav=document.getElementById('bottomNav');
+  if(bottomNav){
+    bottomNav.querySelectorAll('a.bn-tab').forEach(tab=>{
+      tab.addEventListener('click',e=>{
+        e.preventDefault();
+        const id=tab.getAttribute('href');
+        const t=document.querySelector(id);
+        if(t)t.scrollIntoView({behavior:'smooth',block:'start'});
+        bottomNav.querySelectorAll('.bn-tab').forEach(x=>x.classList.remove('active'));
+        tab.classList.add('active');
+      });
+    });
+    document.getElementById('bnMore').addEventListener('click',open);
+    const obs=new IntersectionObserver(entries=>{
+      entries.forEach(en=>{
+        if(en.isIntersecting){
+          const id='#'+en.target.id;
+          bottomNav.querySelectorAll('a.bn-tab').forEach(x=>x.classList.toggle('active',x.getAttribute('href')===id));
+        }
+      });
+    },{threshold:.4,rootMargin:'-56px 0px 0px 0px'});
+    ['overview','itinerary','packing','budget'].forEach(id=>{const el=document.getElementById(id);if(el)obs.observe(el);});
+  }
 }
 
 // ===== 云端同步（GitHub / Gitee） =====
@@ -1189,10 +1226,18 @@ document.querySelectorAll('.pack-cat .item').forEach(addOwnerBadge);
 customItems.forEach(it=>{const g=document.querySelectorAll('.items')[it.cat];if(g){const el=makeItem(it);addOwnerBadge(el);g.appendChild(el);}});
 addControls();
 renderLedger();
+document.getElementById('lg-date').value=todayStr();
 bindFilterDrawer();
 updateProgress();
 applyFilter();
 cloudInit();
 </script>
+<nav class="bottom-nav" id="bottomNav" aria-label="手机导航">
+  <a href="#overview" class="bn-tab active" data-target="#overview"><span class="bn-ic">🏠</span><span>概览</span></a>
+  <a href="#itinerary" class="bn-tab" data-target="#itinerary"><span class="bn-ic">🗓</span><span>行程</span></a>
+  <a href="#packing" class="bn-tab" data-target="#packing"><span class="bn-ic">🧳</span><span>行李</span></a>
+  <a href="#budget" class="bn-tab" data-target="#budget"><span class="bn-ic">💰</span><span>记账</span></a>
+  <button class="bn-tab" id="bnMore" type="button"><span class="bn-ic">☰</span><span>更多</span></button>
+</nav>
 </body>
 </html>
