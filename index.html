@@ -942,6 +942,7 @@ let curFilter='all';
 function addOwnerBadge(item){
   let owner=item.dataset.owner||(item.querySelector('input')&&item.querySelector('input').id&&ownerMap[item.querySelector('input').id])||'all';
   item.dataset.owner=owner;
+  const old=item.querySelector('.owner');if(old)old.remove();
   const btn=document.createElement('button');
   btn.className='owner';btn.type='button';btn.title='点击切换负责成员';
   btn.textContent=OWNERS[owner].ic;
