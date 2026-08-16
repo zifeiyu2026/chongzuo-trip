@@ -48,6 +48,9 @@
   .cloud-btn.synced .dot-status{background:#2ecc71;}
   .cloud-btn.error .dot-status{background:#e74c3c;}
   .saved{color:var(--muted);font-size:12px;}
+  #syncStatus{color:var(--teal);font-size:12px;}
+  .cloud-warn{margin:8px 0;padding:8px 10px;background:var(--amber-soft);border-left:3px solid var(--amber);border-radius:6px;font-size:12.5px;color:#7a5a1e;line-height:1.5;}
+  .cloud-warn strong{color:#a36b15;}
   nav.toc{display:flex;gap:6px;flex-wrap:wrap;margin:18px 0 4px;}
   nav.toc a{background:#fff;border:1px solid var(--line);border-radius:18px;padding:5px 12px;
     font-size:13px;color:var(--muted);}
@@ -259,6 +262,7 @@
     <button class="btn" onclick="resetChecks()">重置清单</button>
     <button class="btn" onclick="window.print()">打印</button>
     <span class="spacer"></span>
+    <span class="saved" id="syncStatus"></span>
     <span class="saved" id="saveStatus">已自动保存到本地</span>
   </div>
 </div>
@@ -291,6 +295,7 @@
   <div class="cloud-modal">
     <h3>☁️ 云同步设置</h3>
     <p>选择同步源。GitHub 国际通用；Gitee 是国内服务，在移动网络/微信中更稳定。</p>
+    <p class="cloud-warn">⚠️ 电脑和手机都要用本链接打开，并填<strong>相同的 Token 和相同的 ID</strong> 才能互相同步。手机端填 ID 时不要留空，要填电脑端自动生成的那串。</p>
     <div class="cloud-form">
       <label for="cloudProvider">同步服务</label>
       <select id="cloudProvider" onchange="onProviderChange()">
@@ -811,7 +816,7 @@ function setStatus(t){const s=document.getElementById('saveStatus');s.textConten
 let customItems=[]; // {id,cat,text,checked}
 
 function saveAll(){
-  const data={txt:{},checks:[],custom:customItems,owners:collectOwners(),ledger:ledgerData};
+  const data={txt:{},checks:[],custom:customItems,owners:collectOwners(),ledger:ledgerData,ts:Date.now()};
   $('[data-save]').forEach(el=>data.txt[el.id]=el.innerText);
   $('[data-check]').forEach(el=>{if(el.checked)data.checks.push(el.id);});
   localStorage.setItem(KEY,JSON.stringify(data));
@@ -1081,6 +1086,7 @@ async function testCloudConnection(){
 }
 async function cloudUpload(isSetup){
   const cfg=getCloudConfig();if(!cfg.token)return;
+  const wasNew=!cfg.gistId;
   const payload=localStorage.getItem(KEY)||'{}';
   const fname=CLOUD_PROVIDERS[cfg.provider].file;
   try{
@@ -1102,7 +1108,10 @@ async function cloudUpload(isSetup){
     if(j.id&&j.id!==cfg.gistId){cfg.gistId=j.id;setCloudConfig(cfg);document.getElementById('cloudGistId').value=j.id;}
     cloudLog('上传成功 '+new Date().toLocaleTimeString());
     updateCloudDot(true);
-    if(isSetup)closeCloudModal();
+    if(isSetup){
+      if(wasNew)cloudLog('✅ 已创建云片段，ID：'+j.id+'（请复制，手机端需填相同 ID 才能同步）','ok');
+      else closeCloudModal();
+    }
   }catch(e){cloudLog('上传失败：'+e.message,true);updateCloudDot(false);}
 }
 async function cloudDownload(isManual){
@@ -1131,11 +1140,45 @@ function autoCloudSync(){
   if(cloudTimer)clearTimeout(cloudTimer);
   cloudTimer=setTimeout(()=>cloudUpload(),1200);
 }
+let cloudPollTimer=null,lastSyncTs=0;
+function updateCloudStatus(){
+  const el=document.getElementById('syncStatus');if(!el)return;
+  if(!cloudCfg.token||!cloudCfg.gistId){el.textContent='· 未配置云同步';el.style.color='var(--amber)';return;}
+  if(!lastSyncTs){el.textContent='';el.style.color='var(--teal)';return;}
+  const s=Math.round((Date.now()-lastSyncTs)/1000);
+  el.textContent='· 云同步 '+s+'秒前';el.style.color='var(--teal)';
+}
+async function cloudPoll(){
+  const cfg=getCloudConfig();if(!cfg.token||!cfg.gistId)return;
+  try{
+    let url,headers={};
+    if(cfg.provider==='github'){url='https://api.github.com/gists/'+cfg.gistId;headers={'Authorization':'token '+cfg.token,'Accept':'application/vnd.github+json'};}
+    else{url='https://gitee.com/api/v5/gists/'+cfg.gistId+'?access_token='+cfg.token;}
+    const r=await fetch(url,{headers});
+    if(!r.ok)return;
+    const j=await r.json();
+    const fname=CLOUD_PROVIDERS[cfg.provider].file;
+    const f=j.files&&j.files[fname];if(!f||!f.content)return;
+    const data=JSON.parse(f.content);
+    const local=JSON.parse(localStorage.getItem(KEY)||'{}');
+    const cloudTs=data.ts||0,localTs=local.ts||0;
+    if(cloudTs<=localTs)return; // 云端不比本地新，跳过，避免冲掉本地未上传的改动
+    localStorage.setItem(KEY,JSON.stringify(data));
+    loadAll();
+    document.querySelectorAll('.pack-cat .item').forEach(addOwnerBadge);
+    renderLedger();updateProgress();applyFilter();
+    lastSyncTs=Date.now();updateCloudStatus();
+  }catch(e){}
+}
 function cloudInit(){
   getCloudConfig();
+  updateCloudStatus();
   if(cloudCfg.token&&cloudCfg.gistId){
     updateCloudDot(true);
     cloudDownload(false);
+    lastSyncTs=Date.now();updateCloudStatus();
+    if(cloudPollTimer)clearInterval(cloudPollTimer);
+    cloudPollTimer=setInterval(()=>{cloudPoll();updateCloudStatus();},20000);
   }
 }
 
